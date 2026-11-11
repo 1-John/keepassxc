@@ -79,7 +79,6 @@ QString TouchID::errorString() const
 }
 
 static LAContext* s_activeContext = nil;
-static id s_appDeactivateObserver = nil;
 
 void TouchID::cancelPrompt()
 {

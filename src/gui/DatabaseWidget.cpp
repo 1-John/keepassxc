@@ -22,20 +22,28 @@
 #include <QBoxLayout>
 #include <QCheckBox>
 #include <QDesktopServices>
+#include <QDialogButtonBox>
+#include <QDir>
+#include <QHeaderView>
 #include <QHostInfo>
 #include <QInputDialog>
 #include <QKeyEvent>
 #include <QPlainTextEdit>
 #include <QProcess>
+#include <QPushButton>
 #include <QSplitter>
+#include <QTableWidget>
 #include <QTextDocumentFragment>
 #include <QTextEdit>
+#include <QUrl>
 
 #include "autotype/AutoType.h"
 #include "core/AsyncTask.h"
 #include "core/EntrySearcher.h"
 #include "core/Merger.h"
+#include "core/OfflineCache.h"
 #include "core/Tools.h"
+#include "gui/Application.h"
 #include "gui/Clipboard.h"
 #include "gui/CloneDialog.h"
 #include "gui/DatabaseOpenDialog.h"
@@ -104,7 +112,23 @@ DatabaseWidget::DatabaseWidget(QSharedPointer<Database> db, QWidget* parent)
 
     m_messageWidget->setHidden(true);
 
+    m_offlineBannerWidget = new QWidget(m_mainWidget);
+    m_offlineBannerWidget->setObjectName("OfflineCloudBanner");
+    auto* bannerLayout = new QHBoxLayout(m_offlineBannerWidget);
+    bannerLayout->setContentsMargins(12, 6, 12, 6);
+    bannerLayout->setSpacing(10);
+    m_offlineBannerLabel = new QLabel(
+        tr("\u2601 Working offline. Changes are saved to the local copy and will be merged when the original file is reachable again."),
+        m_offlineBannerWidget);
+    m_offlineBannerLabel->setWordWrap(true);
+    auto* bannerSyncBtn = new QPushButton(tr("Sync now"), m_offlineBannerWidget);
+    connect(bannerSyncBtn, &QPushButton::clicked, this, &DatabaseWidget::syncOfflineCacheNow);
+    bannerLayout->addWidget(m_offlineBannerLabel, 1);
+    bannerLayout->addWidget(bannerSyncBtn, 0);
+    m_offlineBannerWidget->setVisible(false);
+
     auto mainLayout = new QVBoxLayout();
+    mainLayout->addWidget(m_offlineBannerWidget);
     mainLayout->addWidget(m_messageWidget);
     auto hbox = new QHBoxLayout();
     mainLayout->addLayout(hbox);
@@ -244,6 +268,7 @@ DatabaseWidget::DatabaseWidget(QSharedPointer<Database> db, QWidget* parent)
     } else {
         switchToOpenDatabase();
     }
+    updateOfflineBanner();
 }
 
 DatabaseWidget::DatabaseWidget(const QString& filePath, QWidget* parent)
@@ -501,6 +526,8 @@ void DatabaseWidget::replaceDatabase(QSharedPointer<Database> db)
     }
 
     emit databaseReplaced(oldDb, m_db);
+    updateOfflineBanner();
+    emit cloudStatusChanged();
 
     KeeShare::instance()->connectDatabase(m_db, oldDb);
 
@@ -1318,6 +1345,18 @@ void DatabaseWidget::connectDatabaseSignals()
     connect(m_db.data(), &Database::databaseFileChanged, this, &DatabaseWidget::reloadDatabaseFile);
     connect(m_db.data(), &Database::databaseNonDataChanged, this, &DatabaseWidget::databaseNonDataChanged);
     connect(m_db.data(), &Database::databaseNonDataChanged, this, &DatabaseWidget::onDatabaseNonDataChanged);
+    connect(m_db.data(), &Database::offlineStateChanged, this, [this] {
+        updateOfflineBanner();
+        emit cloudStatusChanged();
+    });
+    connect(m_db.data(), &Database::cloudModeChanged, this, [this] {
+        updateOfflineBanner();
+        emit cloudStatusChanged();
+    });
+    connect(m_db.data(), &Database::databaseSaved, this, [this] {
+        updateOfflineBanner();
+        emit cloudStatusChanged();
+    });
 }
 
 void DatabaseWidget::loadDatabase(bool accepted)
@@ -1351,6 +1390,7 @@ void DatabaseWidget::loadDatabase(bool accepted)
         m_groupBeforeLock = QUuid();
         m_entryBeforeLock = QUuid();
         m_saveAttempts = 0;
+        handlePostUnlockOfflineStatus();
         emit databaseUnlocked();
 #ifdef KPXC_FEATURE_SSHAGENT
         sshAgent()->databaseUnlocked(m_db);
@@ -1513,6 +1553,7 @@ void DatabaseWidget::unlockDatabase(bool accepted)
 
     switchToMainView();
     processAutoOpen();
+    handlePostUnlockOfflineStatus();
     emit databaseUnlocked();
 
 #ifdef KPXC_FEATURE_SSHAGENT
@@ -2153,12 +2194,19 @@ void DatabaseWidget::reloadDatabaseFile(bool triggeredBySave)
         return;
     }
 
+    const bool cloudMode = m_db->isCloudModeEnabled();
+    const bool reconnectingFromOffline =
+        cloudMode && (m_db->isWorkingOffline() || OfflineCache::forDatabase(m_db->filePath()).isDirty());
+    if (reconnectingFromOffline && !OfflineCache::isOriginalFileReachable(m_db->filePath())) {
+        return;
+    }
+
     m_blockAutoSave = true;
     m_reloading = true;
 
     emit reloadBegin();
 
-    if (!triggeredBySave && !config()->get(Config::AutoReloadOnChange).toBool()) {
+    if (!reconnectingFromOffline && !triggeredBySave && !config()->get(Config::AutoReloadOnChange).toBool()) {
         // Ask if we want to reload the db
         auto result = MessageBox::question(
             this,
@@ -2239,17 +2287,58 @@ void DatabaseWidget::reloadDatabaseFile(bool triggeredBySave)
     };
 
     auto db = QSharedPointer<Database>::create(m_db->filePath());
-    bool openResult = db->open(database()->key());
+    bool openResult = cloudMode ? db->openWithoutOfflineFallback(m_db->filePath(), database()->key())
+                                : db->open(database()->key());
+
+    if (reconnectingFromOffline) {
+        auto cache = OfflineCache::forDatabase(m_db->filePath());
+        m_db->refreshOfflineCache(true);
+        if (openResult) {
+            cache.addVersion(m_db->filePath(), OfflineCache::fingerprint(db.data()), true);
+            Merger offlineIntoNew(m_db.data(), db.data());
+            const int countA = offlineIntoNew.merge(true).size();
+            Merger newIntoOffline(db.data(), m_db.data());
+            const int countB = newIntoOffline.merge(true).size();
+            const int totalChanges = countA + countB;
+
+            reloadContinue(std::move(db), true);
+            if (!triggeredBySave) {
+                save();
+            }
+            if (totalChanges > 0) {
+                showMessage(tr("Merged changes from the original file (%n change(s)).", "", totalChanges),
+                            MessageWidget::Positive);
+            } else {
+                showMessage(tr("Offline copy is up to date."), MessageWidget::Positive);
+            }
+            return;
+        }
+        // Credentials differ on the original file; prompt user to unlock it and then merge and save
+        triggeredBySave = true;
+    }
 
     // skip if the db is unchanged, or the db file is gone or for sure not a kp-db
-    if (bool sameHash = db->fileBlockHash() == m_db->fileBlockHash() || db->fileBlockHash().isEmpty()) {
-        if (!sameHash) {
-            // db file gone or invalid so mark modified
-            m_db->markAsModified();
+    if (!reconnectingFromOffline) {
+        if (bool sameHash = db->fileBlockHash() == m_db->fileBlockHash() || db->fileBlockHash().isEmpty()) {
+            if (!sameHash) {
+                if (cloudMode && !OfflineCache::isOriginalFileReachable(m_db->filePath())) {
+                    m_db->setWorkingOffline(true);
+                    m_db->refreshOfflineCache(false);
+                } else {
+                    // db file gone or invalid so mark modified
+                    m_db->markAsModified();
+                }
+            }
+            m_blockAutoSave = false;
+            reloadFinish();
+            return;
         }
-        m_blockAutoSave = false;
-        reloadFinish();
-        return;
+    }
+
+    if (cloudMode && openResult) {
+        auto cache = OfflineCache::forDatabase(m_db->filePath());
+        m_db->refreshOfflineCache(true);
+        cache.addVersion(m_db->filePath(), OfflineCache::fingerprint(db.data()), true);
     }
 
     bool merge = false;
@@ -2839,4 +2928,217 @@ void DatabaseWidget::openDatabaseFromEntry(const Entry* entry, bool inBackground
 
     // Request to open the database file in the background with a password and keyfile
     emit requestOpenDatabase(dbFileInfo.canonicalFilePath(), inBackground, password, keyFileInfo.canonicalFilePath());
+}
+
+void DatabaseWidget::updateOfflineBanner()
+{
+    if (!m_offlineBannerWidget) {
+        return;
+    }
+    const bool show = m_db && !isLocked() && m_db->isCloudModeEnabled() && m_db->isWorkingOffline();
+    if (show) {
+        const bool dark = kpxcApp && kpxcApp->isDarkTheme();
+        const QString bg = dark ? QStringLiteral("#7a5a10") : QStringLiteral("#f4b942");
+        const QString fg = dark ? QStringLiteral("#fff3d6") : QStringLiteral("#3a2a00");
+        m_offlineBannerWidget->setStyleSheet(
+            QStringLiteral("#OfflineCloudBanner { background-color: %1; border-radius: 4px; } "
+                           "#OfflineCloudBanner QLabel { color: %2; font-weight: 500; }")
+                .arg(bg, fg));
+    }
+    m_offlineBannerWidget->setVisible(show);
+}
+
+void DatabaseWidget::handlePostUnlockOfflineStatus()
+{
+    updateOfflineBanner();
+    emit cloudStatusChanged();
+
+    if (!m_db) {
+        return;
+    }
+
+    if (m_db->mergedFromOfflineCacheOnOpen()) {
+        const int count = m_db->mergedFromOfflineCacheCount();
+        m_db->clearOfflineCacheOpenFlags();
+        if (count > 0) {
+            showMessage(tr("Merged changes from the original file (%n change(s)).", "", count),
+                        MessageWidget::Positive);
+        } else {
+            showMessage(tr("Offline copy is up to date."), MessageWidget::Positive);
+        }
+    } else if (m_db->offlineCacheNeedsManualMerge()) {
+        m_db->clearOfflineCacheOpenFlags();
+        const auto cache = OfflineCache::forDatabase(m_db->filePath());
+        auto res = MessageBox::question(
+            this,
+            tr("Offline Copy Has Different Password"),
+            tr("Your offline copy has unsynced changes, but its master password differs from the original file.\n"
+               "The offline copy has been backed up. Would you like to unlock it with its previous password and merge "
+               "it now?"),
+            MessageBox::Yes | MessageBox::No,
+            MessageBox::Yes);
+        if (res == MessageBox::Yes) {
+            emit requestMergeDatabase(cache.cacheFilePath());
+        }
+    }
+}
+
+void DatabaseWidget::syncOfflineCacheNow()
+{
+    if (!m_db || isLocked() || !m_db->isCloudModeEnabled()) {
+        return;
+    }
+
+    const auto cache = OfflineCache::forDatabase(m_db->filePath());
+    if (m_db->isWorkingOffline() || cache.isDirty()) {
+        if (!OfflineCache::isOriginalFileReachable(m_db->filePath())) {
+            if (m_db->isModified()) {
+                save();
+            } else {
+                m_db->refreshOfflineCache(false);
+            }
+            showMessage(tr("Original file is not reachable. Working offline — changes are saved locally."),
+                        MessageWidget::Warning);
+            return;
+        }
+        reloadDatabaseFile(true);
+        return;
+    }
+
+    if (m_db->isModified()) {
+        save();
+    } else {
+        reloadDatabaseFile(false);
+        m_db->refreshOfflineCache(false);
+    }
+    showMessage(tr("Offline copy is up to date."), MessageWidget::Positive);
+}
+
+void DatabaseWidget::showOfflineBackupVersions()
+{
+    if (!m_db || m_db->filePath().isEmpty()) {
+        return;
+    }
+
+    const auto cache = OfflineCache::forDatabase(m_db->filePath());
+    const auto versions = cache.versions();
+
+    QDialog dlg(this);
+    dlg.setWindowTitle(tr("Offline Backup Versions"));
+    dlg.resize(560, 360);
+    auto* layout = new QVBoxLayout(&dlg);
+
+    auto* infoLabel = new QLabel(
+        tr("Backup versions stored on this computer for \"%1\" (most recent first):").arg(displayFileName()), &dlg);
+    infoLabel->setWordWrap(true);
+    layout->addWidget(infoLabel);
+
+    auto* table = new QTableWidget(versions.size(), 3, &dlg);
+    table->setHorizontalHeaderLabels({tr("Date / Time"), tr("Reason"), tr("File")});
+    table->setSelectionBehavior(QAbstractItemView::SelectRows);
+    table->setSelectionMode(QAbstractItemView::SingleSelection);
+    table->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    table->horizontalHeader()->setStretchLastSection(true);
+    table->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+    table->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
+
+    for (int i = 0; i < versions.size(); ++i) {
+        const auto& v = versions.at(versions.size() - 1 - i);
+        const QString fullPath = QDir(cache.versionsDirectory()).filePath(v.fileName);
+        auto* timeItem =
+            new QTableWidgetItem(v.timestamp.toLocalTime().toString(QLocale().dateTimeFormat(QLocale::ShortFormat)));
+        timeItem->setData(Qt::UserRole, fullPath);
+        auto* typeItem =
+            new QTableWidgetItem(v.structural ? tr("Structure / Merge snapshot") : tr("Content edit"));
+        auto* fileItem = new QTableWidgetItem(v.fileName);
+        table->setItem(i, 0, timeItem);
+        table->setItem(i, 1, typeItem);
+        table->setItem(i, 2, fileItem);
+    }
+    if (!versions.isEmpty()) {
+        table->selectRow(0);
+    }
+    layout->addWidget(table, 1);
+
+    auto* btnLayout = new QHBoxLayout();
+    auto* mergeBtn = new QPushButton(tr("Merge into current database…"), &dlg);
+    auto* exportBtn = new QPushButton(tr("Save copy as…"), &dlg);
+    auto* openFolderBtn = new QPushButton(tr("Open folder"), &dlg);
+    auto* closeBtn = new QPushButton(tr("Close"), &dlg);
+    mergeBtn->setEnabled(!versions.isEmpty() && !isLocked());
+    exportBtn->setEnabled(!versions.isEmpty());
+    btnLayout->addWidget(mergeBtn);
+    btnLayout->addWidget(exportBtn);
+    btnLayout->addWidget(openFolderBtn);
+    btnLayout->addStretch(1);
+    btnLayout->addWidget(closeBtn);
+    layout->addLayout(btnLayout);
+
+    auto selectedFilePath = [table]() -> QString {
+        const auto items = table->selectedItems();
+        if (items.isEmpty()) {
+            return {};
+        }
+        return table->item(items.first()->row(), 0)->data(Qt::UserRole).toString();
+    };
+
+    connect(mergeBtn, &QPushButton::clicked, &dlg, [&]() {
+        const auto path = selectedFilePath();
+        if (!path.isEmpty()) {
+            dlg.accept();
+            emit requestMergeDatabase(path);
+        }
+    });
+    connect(exportBtn, &QPushButton::clicked, &dlg, [&]() {
+        const auto path = selectedFilePath();
+        if (path.isEmpty()) {
+            return;
+        }
+        const auto dest = fileDialog()->getSaveFileName(
+            &dlg, tr("Save backup version as"), QFileInfo(path).fileName(), tr("KeePass 2 Database") + " (*.kdbx)");
+        if (!dest.isEmpty()) {
+            QFile::remove(dest);
+            QFile::copy(path, dest);
+        }
+    });
+    connect(openFolderBtn, &QPushButton::clicked, &dlg, [&]() {
+        QDir().mkpath(cache.versionsDirectory());
+        QDesktopServices::openUrl(QUrl::fromLocalFile(cache.versionsDirectory()));
+    });
+    connect(closeBtn, &QPushButton::clicked, &dlg, &QDialog::reject);
+
+    dlg.exec();
+}
+
+void DatabaseWidget::toggleCloudMode(bool enabled)
+{
+    if (!m_db || m_db->filePath().isEmpty()) {
+        return;
+    }
+
+    auto cache = OfflineCache::forDatabase(m_db->filePath());
+    if (enabled) {
+        OfflineCache::setLocalOverride(m_db->filePath(), OfflineCache::Override::Enabled);
+        m_db->refreshOfflineCache(false);
+        showMessage(tr("Offline copy is up to date."), MessageWidget::Positive);
+    } else {
+        if (cache.hasCacheFile() || !cache.versions().isEmpty()) {
+            auto res = MessageBox::question(
+                this,
+                tr("Delete Offline Copy and Backups?"),
+                tr("Do you want to delete the local offline copy and backup versions for this database from this "
+                   "computer?"),
+                MessageBox::Delete | MessageBox::No,
+                MessageBox::No);
+            if (res == MessageBox::Delete) {
+                cache.removeAll();
+            }
+        }
+        OfflineCache::setLocalOverride(m_db->filePath(), OfflineCache::Override::Disabled);
+        m_db->setWorkingOffline(false);
+    }
+
+    updateOfflineBanner();
+    emit m_db->cloudModeChanged();
+    emit cloudStatusChanged();
 }

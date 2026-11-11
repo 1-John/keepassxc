@@ -173,6 +173,8 @@ signals:
     void requestSearch(const QString& search);
     void reloadBegin();
     void reloadEnd();
+    void cloudStatusChanged();
+    void requestMergeDatabase(const QString& filePath);
 
 public slots:
     bool lock();
@@ -235,6 +237,10 @@ public slots:
     void switchToDatabaseReports();
     void switchToDatabaseSettings();
     void switchToRemoteSettings();
+    void syncOfflineCacheNow();
+    void showOfflineBackupVersions();
+    void toggleCloudMode(bool enabled);
+    void updateOfflineBanner();
 #ifdef KPXC_FEATURE_BROWSER
     void switchToPasskeys();
     void showImportPasskeyDialog(bool isEntry = false);
@@ -302,10 +308,13 @@ private:
     void openDatabaseFromEntry(const Entry* entry, bool inBackground = true);
     void performIconDownloads(const QList<Entry*>& entries, bool force = false, bool downloadInBackground = false);
     bool performSave(QString& errorMessage, const QString& fileName = {});
+    void handlePostUnlockOfflineStatus();
 
     QSharedPointer<Database> m_db;
 
     QPointer<QWidget> m_mainWidget;
+    QPointer<QWidget> m_offlineBannerWidget;
+    QPointer<QLabel> m_offlineBannerLabel;
     QPointer<QSplitter> m_mainSplitter;
     QPointer<QSplitter> m_groupSplitter;
     QPointer<MessageWidget> m_messageWidget;
