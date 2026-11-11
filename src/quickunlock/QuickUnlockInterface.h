@@ -37,6 +37,7 @@ public:
 
     virtual void reset(const QUuid& dbUuid) = 0;
     virtual void reset() = 0;
+    virtual void cancelPrompt() {}
 };
 
 class NoQuickUnlock : public QuickUnlockInterface
@@ -51,6 +52,7 @@ public:
 
     void reset(const QUuid& dbUuid) override;
     void reset() override;
+    void cancelPrompt() override {}
 };
 
 QuickUnlockInterface* getQuickUnlock();

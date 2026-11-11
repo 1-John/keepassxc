@@ -33,6 +33,7 @@ public:
 
     void reset(const QUuid& dbUuid) override;
     void reset() override;
+    void cancelPrompt() override;
 
 private:
     static bool isWatchAvailable();
