@@ -155,7 +155,7 @@ bool TouchID::hasKey(const QUuid& dbUuid) const
     return QFile::exists(filePath);
 }
 
-bool TouchID::getKey(const QUuid& dbUuid, QByteArray& passwordKey)
+bool TouchID::getKey(const QUuid& dbUuid, QByteArray& passwordKey, const QString& dbName)
 {
     passwordKey.clear();
 
@@ -171,8 +171,15 @@ bool TouchID::getKey(const QUuid& dbUuid, QByteArray& passwordKey)
     __block BOOL authSuccess = NO;
     __block BOOL done = NO;
 
+    NSString* reason;
+    if (!dbName.isEmpty()) {
+        reason = [NSString stringWithFormat:@"Unlock %@", dbName.toNSString()];
+    } else {
+        reason = @"Unlock KeePassXC";
+    }
+
     [context evaluatePolicy:policy
-            localizedReason:@"Unlock KeePassXC"
+            localizedReason:reason
                       reply:^(BOOL success, NSError* error) {
         NSLog(@"[TouchID] evaluatePolicy reply: success=%d, error=%@", success, error);
         authSuccess = success;

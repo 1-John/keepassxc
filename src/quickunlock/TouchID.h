@@ -28,7 +28,7 @@ public:
     QString errorString() const override;
 
     bool setKey(const QUuid& dbUuid, const QByteArray& passwordKey) override;
-    bool getKey(const QUuid& dbUuid, QByteArray& passwordKey) override;
+    bool getKey(const QUuid& dbUuid, QByteArray& passwordKey, const QString& dbName = {}) override;
     bool hasKey(const QUuid& dbUuid) const override;
 
     void reset(const QUuid& dbUuid) override;

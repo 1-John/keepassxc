@@ -20,7 +20,8 @@ cmake_minimum_required(VERSION 3.16.0)
 set(KEEPASSXC_VERSION_MAJOR "2")
 set(KEEPASSXC_VERSION_MINOR "8")
 set(KEEPASSXC_VERSION_PATCH "0")
-set(KEEPASSXC_VERSION "${KEEPASSXC_VERSION_MAJOR}.${KEEPASSXC_VERSION_MINOR}.${KEEPASSXC_VERSION_PATCH}")
+set(KEEPASSXC_VERSION_BUILD "004")
+set(KEEPASSXC_VERSION "${KEEPASSXC_VERSION_MAJOR}.${KEEPASSXC_VERSION_MINOR}.${KEEPASSXC_VERSION_PATCH}.${KEEPASSXC_VERSION_BUILD}")
 
 string(TOLOWER "${CMAKE_BUILD_TYPE}" CMAKE_BUILD_TYPE_LOWER)
 
@@ -111,9 +112,28 @@ elseif(EXISTS ${CMAKE_SOURCE_DIR}/.gitrev)
 endif()
 message(STATUS "Found Git HEAD Revision: ${GIT_HEAD}\n")
 
+# Retrieve git commit count to match app build number with git commit number
+execute_process(COMMAND git rev-list --count HEAD
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        OUTPUT_VARIABLE GIT_COMMIT_COUNT
+        ERROR_QUIET)
+string(STRIP "${GIT_COMMIT_COUNT}" GIT_COMMIT_COUNT)
+if(GIT_COMMIT_COUNT MATCHES "^[0-9]+$")
+    string(LENGTH "${GIT_COMMIT_COUNT}" _len)
+    if(_len EQUAL 1)
+        set(KEEPASSXC_VERSION_BUILD "00${GIT_COMMIT_COUNT}")
+    elseif(_len EQUAL 2)
+        set(KEEPASSXC_VERSION_BUILD "0${GIT_COMMIT_COUNT}")
+    else()
+        set(KEEPASSXC_VERSION_BUILD "${GIT_COMMIT_COUNT}")
+    endif()
+    set(KEEPASSXC_VERSION "${KEEPASSXC_VERSION_MAJOR}.${KEEPASSXC_VERSION_MINOR}.${KEEPASSXC_VERSION_PATCH}.${KEEPASSXC_VERSION_BUILD}")
+    set(OVERRIDE_VERSION "${KEEPASSXC_VERSION}")
+endif()
+
 # KeePassXC Versioning and Build Type
 set(OVERRIDE_VERSION "" CACHE STRING "Override the KeePassXC Version for Snapshot builds")
-set(KEEPASSXC_BUILD_TYPE "Snapshot" CACHE STRING "Set KeePassXC build type to distinguish between stable releases and snapshots")
+set(KEEPASSXC_BUILD_TYPE "Release" CACHE STRING "Set KeePassXC build type to distinguish between stable releases and snapshots")
 set_property(CACHE KEEPASSXC_BUILD_TYPE PROPERTY STRINGS Snapshot Release)
 
 # Check if on a tag or has .version file, if so build as a release

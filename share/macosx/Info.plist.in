@@ -30,8 +30,6 @@
   <string>${KEEPASSXC_VERSION}</string>
   <key>CFBundleSignature</key>
   <string>KPXC</string>
-  <key>CFBundleVersion</key>
-  <string>${KEEPASSXC_VERSION_NUM}</string>
   <key>NSHumanReadableCopyright</key>
     <string>Copyright 2016-2020 KeePassXC Development Team</string>
     <key>CFBundleDocumentTypes</key>

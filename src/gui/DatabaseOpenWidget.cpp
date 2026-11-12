@@ -37,6 +37,7 @@
 namespace
 {
     constexpr int clearFormsDelay = 30000;
+    bool s_startupPromptAllowed = true;
 
     bool isQuickUnlockAvailable()
     {
@@ -122,7 +123,10 @@ DatabaseOpenWidget::DatabaseOpenWidget(QWidget* parent)
     });
 
     // QuickUnlock actions
-    connect(m_ui->quickUnlockButton, &QPushButton::pressed, this, [this] { openDatabase(); });
+    connect(m_ui->quickUnlockButton, &QPushButton::pressed, this, [this] {
+        s_startupPromptAllowed = false;
+        openDatabase();
+    });
     connect(m_ui->resetQuickUnlockButton, &QPushButton::pressed, this, [this] { resetQuickUnlock(); });
     m_ui->resetQuickUnlockButton->setShortcut(Qt::Key_Escape);
 
@@ -130,6 +134,7 @@ DatabaseOpenWidget::DatabaseOpenWidget(QWidget* parent)
     connect(m_ui->touchIDUnlockButton, &QPushButton::clicked, this, [this] {
         m_userDeclinedTouchID = false;
         m_unlockingWithTouchID = true;
+        s_startupPromptAllowed = false;
         openDatabase();
     });
 }
@@ -195,17 +200,25 @@ bool DatabaseOpenWidget::event(QEvent* event)
         }
         toggleQuickUnlockScreen();
 
-        if (type == QEvent::WindowActivate) {
-            if (m_needsFocusUnlock && isOnQuickUnlockScreen() && !unlockingDatabase() && !m_quickUnlockPromptActive && !m_userDeclinedTouchID) {
-                m_needsFocusUnlock = false;
-                m_quickUnlockPromptActive = true;
-                QTimer::singleShot(150, this, [this] {
-                    m_quickUnlockPromptActive = false;
-                    if (isOnQuickUnlockScreen() && !unlockingDatabase() && isVisible() && !m_userDeclinedTouchID) {
-                        triggerQuickUnlock();
-                    }
-                });
-            }
+        bool shouldPrompt = false;
+        if (type == QEvent::WindowActivate && m_needsFocusUnlock) {
+            m_needsFocusUnlock = false;
+            shouldPrompt = true;
+        } else if ((type == QEvent::WindowActivate || (type == QEvent::Show && isActiveWindow()))
+                   && m_needsStartupUnlock && s_startupPromptAllowed) {
+            m_needsStartupUnlock = false;
+            s_startupPromptAllowed = false;
+            shouldPrompt = true;
+        }
+
+        if (shouldPrompt && isOnQuickUnlockScreen() && !unlockingDatabase() && !m_quickUnlockPromptActive && !m_userDeclinedTouchID) {
+            m_quickUnlockPromptActive = true;
+            QTimer::singleShot(150, this, [this] {
+                m_quickUnlockPromptActive = false;
+                if (isOnQuickUnlockScreen() && !unlockingDatabase() && isVisible() && !m_userDeclinedTouchID) {
+                    triggerQuickUnlock();
+                }
+            });
         }
 
         if (type == QEvent::Show) {
@@ -266,6 +279,7 @@ void DatabaseOpenWidget::load(const QString& filename)
 {
     m_userDeclinedTouchID = false;
     m_needsFocusUnlock = false;
+    m_needsStartupUnlock = s_startupPromptAllowed && config()->get(Config::Security_QuickUnlockOnStartup).toBool();
     clearForms();
 
     m_filename = filename;
@@ -470,7 +484,8 @@ QSharedPointer<CompositeKey> DatabaseOpenWidget::buildDatabaseKey()
     if (useQuickUnlock && !m_db.isNull() && canPerformQuickUnlock()) {
         // try to retrieve the stored password using Quick Unlock
         QByteArray keyData;
-        if (!getQuickUnlock()->getKey(m_db->publicUuid(), keyData)) {
+        const QString dbName = !m_db->publicName().isEmpty() ? m_db->publicName() : QFileInfo(m_filename).fileName();
+        if (!getQuickUnlock()->getKey(m_db->publicUuid(), keyData, dbName)) {
             m_userDeclinedTouchID = true;
             return {};
         }

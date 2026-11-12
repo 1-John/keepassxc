@@ -42,6 +42,7 @@ class QFile;
 class QMenu;
 class QSplitter;
 class QLabel;
+class QToolButton;
 class EntryPreviewWidget;
 class TagView;
 class ElidedLabel;
@@ -315,6 +316,8 @@ private:
     QPointer<QWidget> m_mainWidget;
     QPointer<QWidget> m_offlineBannerWidget;
     QPointer<QLabel> m_offlineBannerLabel;
+    QPointer<QToolButton> m_offlineBannerCloseBtn;
+    bool m_offlineBannerDismissed = false;
     QPointer<QSplitter> m_mainSplitter;
     QPointer<QSplitter> m_groupSplitter;
     QPointer<MessageWidget> m_messageWidget;

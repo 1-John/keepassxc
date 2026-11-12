@@ -93,6 +93,7 @@ private:
     bool m_userDeclinedTouchID = false;
     bool m_quickUnlockPromptActive = false;
     bool m_needsFocusUnlock = false;
+    bool m_needsStartupUnlock = false;
     bool m_unlockingWithTouchID = false;
     QTimer m_hideTimer;
     QTimer m_hideNoHardwareKeysFoundTimer;

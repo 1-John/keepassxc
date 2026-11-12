@@ -144,8 +144,9 @@ bool Polkit::setKey(const QUuid& dbUuid, const QByteArray& key)
     return true;
 }
 
-bool Polkit::getKey(const QUuid& dbUuid, QByteArray& key)
+bool Polkit::getKey(const QUuid& dbUuid, QByteArray& key, const QString& dbName)
 {
+    Q_UNUSED(dbName);
     if (!m_polkit || !hasKey(dbUuid)) {
         return false;
     }

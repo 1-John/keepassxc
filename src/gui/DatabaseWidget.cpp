@@ -28,6 +28,7 @@
 #include <QHostInfo>
 #include <QInputDialog>
 #include <QKeyEvent>
+#include <QPainter>
 #include <QPlainTextEdit>
 #include <QProcess>
 #include <QPushButton>
@@ -35,6 +36,7 @@
 #include <QTableWidget>
 #include <QTextDocumentFragment>
 #include <QTextEdit>
+#include <QToolButton>
 #include <QUrl>
 
 #include "autotype/AutoType.h"
@@ -51,6 +53,7 @@
 #include "gui/EntryPreviewWidget.h"
 #include "gui/FileDialog.h"
 #include "gui/GuiTools.h"
+#include "gui/Icons.h"
 #include "gui/MainWindow.h"
 #include "gui/MergeDialog.h"
 #include "gui/MessageBox.h"
@@ -114,25 +117,48 @@ DatabaseWidget::DatabaseWidget(QSharedPointer<Database> db, QWidget* parent)
 
     m_offlineBannerWidget = new QWidget(m_mainWidget);
     m_offlineBannerWidget->setObjectName("OfflineCloudBanner");
+    m_offlineBannerWidget->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
+
     auto* bannerLayout = new QHBoxLayout(m_offlineBannerWidget);
-    bannerLayout->setContentsMargins(12, 6, 12, 6);
-    bannerLayout->setSpacing(10);
+    bannerLayout->setContentsMargins(12, 4, 8, 4);
+    bannerLayout->setSpacing(8);
+
     m_offlineBannerLabel = new QLabel(
         tr("\u2601 Working offline. Changes are saved to the local copy and will be merged when the original file is reachable again."),
         m_offlineBannerWidget);
-    m_offlineBannerLabel->setWordWrap(true);
+    m_offlineBannerLabel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+
     auto* bannerSyncBtn = new QPushButton(tr("Sync now"), m_offlineBannerWidget);
+    bannerSyncBtn->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     connect(bannerSyncBtn, &QPushButton::clicked, this, &DatabaseWidget::syncOfflineCacheNow);
+
+    m_offlineBannerCloseBtn = new QToolButton(m_offlineBannerWidget);
+    m_offlineBannerCloseBtn->setObjectName("OfflineCloudBannerCloseBtn");
+    m_offlineBannerCloseBtn->setAutoRaise(true);
+    m_offlineBannerCloseBtn->setIcon(icons()->icon("message-close"));
+    m_offlineBannerCloseBtn->setIconSize(QSize(14, 14));
+    m_offlineBannerCloseBtn->setToolTip(tr("Dismiss"));
+    m_offlineBannerCloseBtn->setCursor(Qt::PointingHandCursor);
+    m_offlineBannerCloseBtn->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    connect(m_offlineBannerCloseBtn, &QToolButton::clicked, this, [this] {
+        m_offlineBannerDismissed = true;
+        m_offlineBannerWidget->setVisible(false);
+    });
+
     bannerLayout->addWidget(m_offlineBannerLabel, 1);
     bannerLayout->addWidget(bannerSyncBtn, 0);
+    bannerLayout->addWidget(m_offlineBannerCloseBtn, 0);
     m_offlineBannerWidget->setVisible(false);
 
     auto mainLayout = new QVBoxLayout();
-    mainLayout->addWidget(m_offlineBannerWidget);
-    mainLayout->addWidget(m_messageWidget);
+    mainLayout->setContentsMargins(0, 0, 0, 0);
+    mainLayout->setSpacing(0);
+    mainLayout->addWidget(m_offlineBannerWidget, 0);
+    mainLayout->addWidget(m_messageWidget, 0);
     auto hbox = new QHBoxLayout();
-    mainLayout->addLayout(hbox);
+    hbox->setContentsMargins(0, 0, 0, 0);
     hbox->addWidget(m_mainSplitter);
+    mainLayout->addLayout(hbox, 1);
     m_mainWidget->setLayout(mainLayout);
 
     // Setup searches and tags view and place under groups
@@ -2935,15 +2961,62 @@ void DatabaseWidget::updateOfflineBanner()
     if (!m_offlineBannerWidget) {
         return;
     }
-    const bool show = m_db && !isLocked() && m_db->isCloudModeEnabled() && m_db->isWorkingOffline();
+    const bool isOffline = m_db && !isLocked() && m_db->isCloudModeEnabled() && m_db->isWorkingOffline();
+    if (!isOffline) {
+        m_offlineBannerDismissed = false;
+    }
+    const bool show = isOffline && !m_offlineBannerDismissed;
     if (show) {
         const bool dark = kpxcApp && kpxcApp->isDarkTheme();
-        const QString bg = dark ? QStringLiteral("#7a5a10") : QStringLiteral("#f4b942");
-        const QString fg = dark ? QStringLiteral("#fff3d6") : QStringLiteral("#3a2a00");
+        const QString bg = dark ? QStringLiteral("#5a3d08") : QStringLiteral("#fef3c7");
+        const QColor fgColor = dark ? QColor(0xfe, 0xf3, 0xc7) : QColor(0x78, 0x35, 0x0f);
+        const QString fg = fgColor.name();
+        const QString border = dark ? QStringLiteral("#854d0e") : QStringLiteral("#fcd34d");
+        const QString btnBg = dark ? QStringLiteral("rgba(255, 255, 255, 0.12)") : QStringLiteral("rgba(0, 0, 0, 0.06)");
+        const QString btnBgHover = dark ? QStringLiteral("rgba(255, 255, 255, 0.22)") : QStringLiteral("rgba(0, 0, 0, 0.12)");
+
         m_offlineBannerWidget->setStyleSheet(
-            QStringLiteral("#OfflineCloudBanner { background-color: %1; border-radius: 4px; } "
-                           "#OfflineCloudBanner QLabel { color: %2; font-weight: 500; }")
-                .arg(bg, fg));
+            QStringLiteral("#OfflineCloudBanner {"
+                           "  background-color: %1;"
+                           "  border-bottom: 1px solid %3;"
+                           "} "
+                           "#OfflineCloudBanner QLabel {"
+                           "  color: %2;"
+                           "  font-weight: 500;"
+                           "  font-size: 12px;"
+                           "} "
+                           "#OfflineCloudBanner QPushButton {"
+                           "  background-color: %4;"
+                           "  color: %2;"
+                           "  border: 1px solid %3;"
+                           "  border-radius: 3px;"
+                           "  padding: 2px 8px;"
+                           "  font-size: 11px;"
+                           "  font-weight: 500;"
+                           "} "
+                           "#OfflineCloudBanner QPushButton:hover {"
+                           "  background-color: %5;"
+                           "} "
+                           "#OfflineCloudBanner QToolButton {"
+                           "  background: transparent;"
+                           "  border: none;"
+                           "  border-radius: 3px;"
+                           "  padding: 2px;"
+                           "} "
+                           "#OfflineCloudBanner QToolButton:hover {"
+                           "  background-color: %4;"
+                           "}")
+                .arg(bg, fg, border, btnBg, btnBgHover));
+
+        if (m_offlineBannerCloseBtn) {
+            QPixmap closePix = icons()->icon("message-close").pixmap(QSize(14, 14));
+            QPainter painter(&closePix);
+            painter.setRenderHint(QPainter::Antialiasing);
+            painter.setCompositionMode(QPainter::CompositionMode_SourceIn);
+            painter.fillRect(closePix.rect(), fgColor);
+            painter.end();
+            m_offlineBannerCloseBtn->setIcon(QIcon(closePix));
+        }
     }
     m_offlineBannerWidget->setVisible(show);
 }

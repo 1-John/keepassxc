@@ -62,10 +62,11 @@ bool NoQuickUnlock::setKey(const QUuid& dbUuid, const QByteArray& key)
     return false;
 }
 
-bool NoQuickUnlock::getKey(const QUuid& dbUuid, QByteArray& key)
+bool NoQuickUnlock::getKey(const QUuid& dbUuid, QByteArray& key, const QString& dbName)
 {
     Q_UNUSED(dbUuid)
     Q_UNUSED(key)
+    Q_UNUSED(dbName)
     return false;
 }
 

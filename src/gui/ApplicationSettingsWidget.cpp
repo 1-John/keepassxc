@@ -93,6 +93,7 @@ ApplicationSettingsWidget::ApplicationSettingsWidget(QWidget* parent)
         {Config::NumberOfRememberedLastDatabases, m_generalUi->rememberLastDatabasesSpinbox},
         {Config::RememberLastKeyFiles, m_generalUi->rememberLastKeyFilesCheckBox},
         {Config::OpenPreviousDatabasesOnStartup, m_generalUi->openPreviousDatabasesOnStartupCheckBox},
+        {Config::Security_QuickUnlockOnStartup, m_generalUi->quickUnlockOnStartupCheckBox},
         {Config::AutoSaveAfterEveryChange, m_generalUi->autoSaveAfterEveryChangeCheckBox},
         {Config::AutoSaveOnExit, m_generalUi->autoSaveOnExitCheckBox},
         {Config::AutoSaveNonDataChanges, m_generalUi->autoSaveNonDataChangesCheckBox},
@@ -265,6 +266,10 @@ ApplicationSettingsWidget::ApplicationSettingsWidget(QWidget* parent)
     connect(m_secUi->lockDatabaseIdleCheckBox, &QCheckBox::toggled, this, [this](bool checked) {
         m_secUi->lockDatabaseIdleSpinBox->setEnabled(checked
                                                      && !config()->isManaged(Config::Security_LockDatabaseIdleSeconds));
+    });
+    connect(m_secUi->quickUnlockCheckBox, &QCheckBox::toggled, this, [this](bool checked) {
+        m_generalUi->quickUnlockOnStartupCheckBox->setEnabled(
+            checked && getQuickUnlock()->isAvailable() && !config()->isManaged(Config::Security_QuickUnlockOnStartup));
     });
 
     // Set Auto-Type shortcut when changed
@@ -462,8 +467,16 @@ void ApplicationSettingsWidget::loadSettings()
     }
 
     // Check for runtime TouchID availability.
-    m_secUi->quickUnlockCheckBox->setEnabled(getQuickUnlock()->isAvailable()
-                                             && !config()->isManaged(Config::Security_QuickUnlock));
+    const bool quickUnlockAvailable = getQuickUnlock()->isAvailable();
+    m_secUi->quickUnlockCheckBox->setEnabled(quickUnlockAvailable && !config()->isManaged(Config::Security_QuickUnlock));
+#ifdef Q_OS_MACOS
+    m_generalUi->quickUnlockOnStartupCheckBox->setText(tr("Immediately ask for Touch ID after startup"));
+#else
+    m_generalUi->quickUnlockOnStartupCheckBox->setText(tr("Immediately ask for Quick Unlock after startup"));
+#endif
+    m_generalUi->quickUnlockOnStartupCheckBox->setEnabled(
+        quickUnlockAvailable && config()->get(Config::Security_QuickUnlock).toBool()
+        && !config()->isManaged(Config::Security_QuickUnlockOnStartup));
 
     minimizeAfterUnlockCheckBoxToggled(m_generalUi->minimizeAfterUnlockCheckBox->isChecked());
     hideWindowOnCopyCheckBoxToggled(m_generalUi->hideWindowOnCopyCheckBox->isChecked());
