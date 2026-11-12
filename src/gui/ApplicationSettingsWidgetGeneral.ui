@@ -230,7 +230,7 @@
               <item>
                <widget class="QCheckBox" name="quickUnlockOnStartupCheckBox">
                 <property name="text">
-                 <string>Immediately ask for Touch ID after startup</string>
+                 <string>Request quick unlock for the most recently used database at application startup</string>
                 </property>
                 <property name="checked">
                  <bool>true</bool>

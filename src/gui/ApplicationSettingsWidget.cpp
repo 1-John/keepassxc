@@ -469,11 +469,8 @@ void ApplicationSettingsWidget::loadSettings()
     // Check for runtime TouchID availability.
     const bool quickUnlockAvailable = getQuickUnlock()->isAvailable();
     m_secUi->quickUnlockCheckBox->setEnabled(quickUnlockAvailable && !config()->isManaged(Config::Security_QuickUnlock));
-#ifdef Q_OS_MACOS
-    m_generalUi->quickUnlockOnStartupCheckBox->setText(tr("Immediately ask for Touch ID after startup"));
-#else
-    m_generalUi->quickUnlockOnStartupCheckBox->setText(tr("Immediately ask for Quick Unlock after startup"));
-#endif
+    m_generalUi->quickUnlockOnStartupCheckBox->setText(
+        tr("Request quick unlock for the most recently used database at application startup"));
     m_generalUi->quickUnlockOnStartupCheckBox->setEnabled(
         quickUnlockAvailable && config()->get(Config::Security_QuickUnlock).toBool()
         && !config()->isManaged(Config::Security_QuickUnlockOnStartup));
