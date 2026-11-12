@@ -228,6 +228,16 @@
                </layout>
               </item>
               <item>
+               <widget class="QCheckBox" name="quickUnlockOnStartupCheckBox">
+                <property name="text">
+                 <string>Request quick unlock for the most recently used database at application startup</string>
+                </property>
+                <property name="checked">
+                 <bool>true</bool>
+                </property>
+               </widget>
+              </item>
+              <item>
                <widget class="QCheckBox" name="checkForUpdatesOnStartupCheckBox">
                 <property name="text">
                  <string>Check for updates at application startup once per week</string>
@@ -1602,6 +1612,7 @@
   <tabstop>rememberLastDatabasesSpinbox</tabstop>
   <tabstop>openPreviousDatabasesOnStartupCheckBox</tabstop>
   <tabstop>rememberLastKeyFilesCheckBox</tabstop>
+  <tabstop>quickUnlockOnStartupCheckBox</tabstop>
   <tabstop>checkForUpdatesOnStartupCheckBox</tabstop>
   <tabstop>checkForUpdatesIncludeBetasCheckBox</tabstop>
   <tabstop>showExpiredEntriesOnDatabaseUnlockCheckBox</tabstop>

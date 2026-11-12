@@ -141,8 +141,9 @@ bool WindowsHello::setKey(const QUuid& dbUuid, const QByteArray& data)
     return true;
 }
 
-bool WindowsHello::getKey(const QUuid& dbUuid, QByteArray& data)
+bool WindowsHello::getKey(const QUuid& dbUuid, QByteArray& data, const QString& dbName)
 {
+    Q_UNUSED(dbName);
     data.clear();
     if (!hasKey(dbUuid)) {
         m_error = QObject::tr("Failed to get Windows Hello credential.");

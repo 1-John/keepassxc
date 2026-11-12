@@ -468,6 +468,50 @@
               <property name="bottomMargin">
                <number>5</number>
               </property>
+              <item>
+               <widget class="QWidget" name="rememberCredentialsContainer" native="true">
+                <layout class="QHBoxLayout" name="rememberCredentialsLayout">
+                 <property name="spacing">
+                  <number>12</number>
+                 </property>
+                 <property name="leftMargin">
+                  <number>0</number>
+                 </property>
+                 <property name="topMargin">
+                  <number>0</number>
+                 </property>
+                 <property name="rightMargin">
+                  <number>0</number>
+                 </property>
+                 <property name="bottomMargin">
+                  <number>0</number>
+                 </property>
+                 <item>
+                  <widget class="QCheckBox" name="rememberCredentialsCheckBox">
+                   <property name="text">
+                    <string>Remember credentials with Touch ID</string>
+                   </property>
+                   <property name="checked">
+                    <bool>true</bool>
+                   </property>
+                  </widget>
+                 </item>
+                 <item>
+                  <widget class="QPushButton" name="touchIDUnlockButton">
+                   <property name="text">
+                    <string>Unlock with Touch ID</string>
+                   </property>
+                   <property name="toolTip">
+                    <string>Unlock using stored Touch ID credentials</string>
+                   </property>
+                   <property name="default">
+                    <bool>true</bool>
+                   </property>
+                  </widget>
+                 </item>
+                </layout>
+               </widget>
+              </item>
               <item alignment="Qt::AlignRight">
                <widget class="QDialogButtonBox" name="buttonBox">
                 <property name="focusPolicy">

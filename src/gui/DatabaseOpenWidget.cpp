@@ -36,6 +36,7 @@
 namespace
 {
     constexpr int clearFormsDelay = 30000;
+    bool s_startupPromptAllowed = true;
 
     bool isQuickUnlockAvailable()
     {
@@ -121,9 +122,20 @@ DatabaseOpenWidget::DatabaseOpenWidget(QWidget* parent)
     });
 
     // QuickUnlock actions
-    connect(m_ui->quickUnlockButton, &QPushButton::pressed, this, [this] { openDatabase(); });
+    connect(m_ui->quickUnlockButton, &QPushButton::pressed, this, [this] {
+        s_startupPromptAllowed = false;
+        openDatabase();
+    });
     connect(m_ui->resetQuickUnlockButton, &QPushButton::pressed, this, [this] { resetQuickUnlock(); });
     m_ui->resetQuickUnlockButton->setShortcut(Qt::Key_Escape);
+
+    m_ui->touchIDUnlockButton->setIcon(icons()->icon("fingerprint"));
+    connect(m_ui->touchIDUnlockButton, &QPushButton::clicked, this, [this] {
+        m_userDeclinedTouchID = false;
+        m_unlockingWithTouchID = true;
+        s_startupPromptAllowed = false;
+        openDatabase();
+    });
 }
 
 DatabaseOpenWidget::~DatabaseOpenWidget() = default;
@@ -187,6 +199,27 @@ bool DatabaseOpenWidget::event(QEvent* event)
         }
         toggleQuickUnlockScreen();
 
+        bool shouldPrompt = false;
+        if (type == QEvent::WindowActivate && m_needsFocusUnlock) {
+            m_needsFocusUnlock = false;
+            shouldPrompt = true;
+        } else if ((type == QEvent::WindowActivate || (type == QEvent::Show && isActiveWindow()))
+                   && m_needsStartupUnlock && s_startupPromptAllowed) {
+            m_needsStartupUnlock = false;
+            s_startupPromptAllowed = false;
+            shouldPrompt = true;
+        }
+
+        if (shouldPrompt && isOnQuickUnlockScreen() && !unlockingDatabase() && !m_quickUnlockPromptActive && !m_userDeclinedTouchID) {
+            m_quickUnlockPromptActive = true;
+            QTimer::singleShot(150, this, [this] {
+                m_quickUnlockPromptActive = false;
+                if (isOnQuickUnlockScreen() && !unlockingDatabase() && isVisible() && !m_userDeclinedTouchID) {
+                    triggerQuickUnlock();
+                }
+            });
+        }
+
         if (type == QEvent::Show) {
 #ifdef Q_OS_WIN
             m_deviceListener->registerHotplugCallback(true,
@@ -212,6 +245,10 @@ bool DatabaseOpenWidget::event(QEvent* event)
 
         ret = true;
     } else if (type == QEvent::Hide || type == QEvent::WindowDeactivate) {
+        if (type == QEvent::WindowDeactivate) {
+            m_needsFocusUnlock = true;
+        }
+
         // Schedule form clearing if we are hidden
         if (!m_hideTimer.isActive()) {
             m_hideTimer.start();
@@ -239,6 +276,9 @@ void DatabaseOpenWidget::showMessage(const QString& text, MessageWidget::Message
 
 void DatabaseOpenWidget::load(const QString& filename)
 {
+    m_userDeclinedTouchID = false;
+    m_needsFocusUnlock = false;
+    m_needsStartupUnlock = s_startupPromptAllowed && config()->get(Config::Security_QuickUnlockOnStartup).toBool();
     clearForms();
 
     m_filename = filename;
@@ -373,10 +413,14 @@ void DatabaseOpenWidget::openDatabase()
             }
         }
 
-        // Save Quick Unlock credentials if available
+        // Save Quick Unlock credentials if available and requested
         if (!blockQuickUnlock && isQuickUnlockAvailable()) {
-            auto keyData = databaseKey->serialize();
-            getQuickUnlock()->setKey(m_db->publicUuid(), keyData);
+            if (m_ui->rememberCredentialsCheckBox->isChecked()) {
+                auto keyData = databaseKey->serialize();
+                getQuickUnlock()->setKey(m_db->publicUuid(), keyData);
+            } else {
+                getQuickUnlock()->reset(m_db->publicUuid());
+            }
             m_ui->messageWidget->hideMessage();
         }
 
@@ -421,16 +465,19 @@ QSharedPointer<CompositeKey> DatabaseOpenWidget::buildDatabaseKey()
 {
     auto databaseKey = QSharedPointer<CompositeKey>::create();
 
-    if (!m_db.isNull() && canPerformQuickUnlock()) {
-        // try to retrieve the stored password using Windows Hello
+    bool useQuickUnlock = isOnQuickUnlockScreen() || m_unlockingWithTouchID;
+    m_unlockingWithTouchID = false;
+
+    if (useQuickUnlock && !m_db.isNull() && canPerformQuickUnlock()) {
+        // try to retrieve the stored password using Quick Unlock
         QByteArray keyData;
-        if (!getQuickUnlock()->getKey(m_db->publicUuid(), keyData)) {
-            m_ui->messageWidget->showMessage(
-                tr("Failed to authenticate with Quick Unlock: %1").arg(getQuickUnlock()->errorString()),
-                MessageWidget::Error);
+        const QString dbName = !m_db->publicName().isEmpty() ? m_db->publicName() : QFileInfo(m_filename).fileName();
+        if (!getQuickUnlock()->getKey(m_db->publicUuid(), keyData, dbName)) {
+            m_userDeclinedTouchID = true;
             return {};
         }
         databaseKey->setRawKey(keyData);
+        m_userDeclinedTouchID = false;
         return databaseKey;
     }
 
@@ -624,7 +671,10 @@ bool DatabaseOpenWidget::isOnQuickUnlockScreen() const
 
 void DatabaseOpenWidget::toggleQuickUnlockScreen()
 {
-    if (canPerformQuickUnlock()) {
+    bool touchIdAvail = canPerformQuickUnlock();
+    m_ui->touchIDUnlockButton->setVisible(touchIdAvail);
+
+    if (touchIdAvail) {
         m_ui->centralStack->setCurrentIndex(1);
         // Work around qt issue where focus is stolen even if not visible
         if (m_ui->quickUnlockButton->isVisible()) {
@@ -653,11 +703,8 @@ void DatabaseOpenWidget::triggerQuickUnlock()
  */
 void DatabaseOpenWidget::resetQuickUnlock()
 {
-    if (!isQuickUnlockAvailable()) {
-        return;
+    m_ui->centralStack->setCurrentIndex(0);
+    if (m_ui->editPassword->isVisible()) {
+        m_ui->editPassword->setFocus();
     }
-    if (!m_db.isNull()) {
-        getQuickUnlock()->reset(m_db->publicUuid());
-    }
-    load(m_filename);
 }

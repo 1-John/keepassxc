@@ -32,11 +32,12 @@ public:
     virtual QString errorString() const = 0;
 
     virtual bool setKey(const QUuid& dbUuid, const QByteArray& key) = 0;
-    virtual bool getKey(const QUuid& dbUuid, QByteArray& key) = 0;
+    virtual bool getKey(const QUuid& dbUuid, QByteArray& key, const QString& dbName = {}) = 0;
     virtual bool hasKey(const QUuid& dbUuid) const = 0;
 
     virtual void reset(const QUuid& dbUuid) = 0;
     virtual void reset() = 0;
+    virtual void cancelPrompt() {}
 };
 
 class NoQuickUnlock : public QuickUnlockInterface
@@ -46,11 +47,12 @@ public:
     QString errorString() const override;
 
     bool setKey(const QUuid& dbUuid, const QByteArray& key) override;
-    bool getKey(const QUuid& dbUuid, QByteArray& key) override;
+    bool getKey(const QUuid& dbUuid, QByteArray& key, const QString& dbName = {}) override;
     bool hasKey(const QUuid& dbUuid) const override;
 
     void reset(const QUuid& dbUuid) override;
     void reset() override;
+    void cancelPrompt() override {}
 };
 
 QuickUnlockInterface* getQuickUnlock();

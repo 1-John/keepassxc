@@ -378,7 +378,7 @@ target_link_libraries(keepassxc_gui
         ${sshagent_LIB})
 
 if(APPLE)
-    target_link_libraries(keepassxc_gui "-framework Foundation -framework AppKit -framework Carbon -framework Security -framework LocalAuthentication -framework ScreenCaptureKit")
+    target_link_libraries(keepassxc_gui "-framework Foundation -framework AppKit -framework Carbon -framework Security -framework LocalAuthentication -framework ScreenCaptureKit -framework IOKit")
     if(Qt6MacExtras_FOUND)
         target_link_libraries(keepassxc_gui Qt6::MacExtras)
     endif()
