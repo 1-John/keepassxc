@@ -33,6 +33,7 @@
 #include <QCoreApplication>
 #include <QDir>
 #include <QFile>
+#include <QSaveFile>
 #include <QStandardPaths>
 #include <QString>
 
@@ -69,6 +70,8 @@ QString getTouchIDStoragePath(const QUuid& dbUuid)
     if (!dir.exists("touchid")) {
         dir.mkpath("touchid");
     }
+    QString touchIdDir = dir.filePath("touchid");
+    QFile::setPermissions(touchIdDir, QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner);
     return dir.filePath(QString("touchid/%1.key").arg(dbUuid.toString(QUuid::WithoutBraces)));
 }
 } // namespace
@@ -131,17 +134,25 @@ bool TouchID::setKey(const QUuid& dbUuid, const QByteArray& passwordKey)
     QByteArray payload = randomIV + encrypted;
 
     QString filePath = getTouchIDStoragePath(dbUuid);
-    QFile file(filePath);
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+    QSaveFile file(filePath);
+    if (!file.open(QIODevice::WriteOnly)) {
         return false;
     }
 
-    file.write(payload);
-    file.flush();
-    file.close();
+    // Secure permissions: 0600 (owner only) before writing payload and committing
+    if (!file.setPermissions(QFile::ReadOwner | QFile::WriteOwner)) {
+        file.cancelWriting();
+        return false;
+    }
 
-    // Secure permissions: 0600 (owner only)
-    file.setPermissions(QFile::ReadOwner | QFile::WriteOwner);
+    if (file.write(payload) != payload.size()) {
+        file.cancelWriting();
+        return false;
+    }
+
+    if (!file.commit()) {
+        return false;
+    }
 
     return true;
 }
