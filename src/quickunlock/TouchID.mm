@@ -456,6 +456,8 @@ bool TouchID::getKey(const QUuid& dbUuid, QByteArray& passwordKey, const QString
             reason = @"Unlock KeePassXC";
         }
 
+        context.touchIDAuthenticationAllowableReuseDuration = 0;
+
         {
             std::lock_guard<std::mutex> lock(s_contextMutex);
             if (s_activeContext) {
@@ -496,8 +498,6 @@ bool TouchID::getKey(const QUuid& dbUuid, QByteArray& passwordKey, const QString
             [context release];
             return false;
         }
-
-        context.touchIDAuthenticationAllowableReuseDuration = 0;
 
         NSData* tokenOID = [NSData dataWithBytes:tokenOidBytes.constData()
                                           length:static_cast<NSUInteger>(tokenOidBytes.size())];
@@ -559,9 +559,6 @@ bool TouchID::getKey(const QUuid& dbUuid, QByteArray& passwordKey, const QString
             || !Botan::same_mem(decryptedPtr,
                                 reinterpret_cast<const uint8_t*>(expectedUuid.constData()),
                                 static_cast<size_t>(kDbUuidRawLen))) {
-            if (decryptedPtr && decryptedLen > 0) {
-                Botan::secure_scrub_memory(const_cast<UInt8*>(decryptedPtr), static_cast<size_t>(decryptedLen));
-            }
             CFRelease(decryptedRef);
             QFile::remove(filePath);
             m_error = QObject::tr("Stored Touch ID credentials did not match this database and were cleared. Please unlock with your password to re-enable Touch ID.");
@@ -570,7 +567,6 @@ bool TouchID::getKey(const QUuid& dbUuid, QByteArray& passwordKey, const QString
 
         passwordKey = QByteArray(reinterpret_cast<const char*>(decryptedPtr + kDbUuidRawLen),
                                  static_cast<int>(decryptedLen - kDbUuidRawLen));
-        Botan::secure_scrub_memory(const_cast<UInt8*>(decryptedPtr), static_cast<size_t>(decryptedLen));
         CFRelease(decryptedRef);
         return !passwordKey.isEmpty();
     }

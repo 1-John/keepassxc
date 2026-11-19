@@ -133,6 +133,19 @@ DatabaseOpenWidget::DatabaseOpenWidget(QWidget* parent)
     m_ui->resetQuickUnlockButton->setShortcut(Qt::Key_Escape);
 
     m_ui->touchIDUnlockButton->setIcon(icons()->icon("fingerprint"));
+#if defined(Q_OS_MACOS)
+    m_ui->rememberCredentialsCheckBox->setText(tr("Remember credentials with Touch ID"));
+    m_ui->touchIDUnlockButton->setText(tr("Unlock with Touch ID"));
+    m_ui->touchIDUnlockButton->setToolTip(tr("Unlock using stored Touch ID credentials"));
+#elif defined(Q_OS_WIN)
+    m_ui->rememberCredentialsCheckBox->setText(tr("Remember credentials with Windows Hello"));
+    m_ui->touchIDUnlockButton->setText(tr("Unlock with Windows Hello"));
+    m_ui->touchIDUnlockButton->setToolTip(tr("Unlock using Windows Hello"));
+#else
+    m_ui->rememberCredentialsCheckBox->setText(tr("Remember credentials for Quick Unlock"));
+    m_ui->touchIDUnlockButton->setText(tr("Quick Unlock"));
+    m_ui->touchIDUnlockButton->setToolTip(tr("Unlock using Quick Unlock"));
+#endif
     connect(m_ui->touchIDUnlockButton, &QPushButton::clicked, this, [this] {
         m_userDeclinedTouchID = false;
         m_unlockingWithTouchID = true;
@@ -387,6 +400,8 @@ void DatabaseOpenWidget::openDatabase()
     m_ui->messageWidget->hide();
     QCoreApplication::processEvents();
 
+    const QUuid targetDbUuid = !m_db.isNull() ? m_db->publicUuid() : QUuid();
+
     QPointer<DatabaseOpenWidget> guard(this);
     const auto databaseKey = buildDatabaseKey();
     if (!guard) {
@@ -445,12 +460,15 @@ void DatabaseOpenWidget::openDatabase()
         clearForms();
     } else {
         if (triedQuickUnlock) {
-            getQuickUnlock()->reset(m_db->publicUuid());
+            if (!targetDbUuid.isNull()) {
+                getQuickUnlock()->reset(targetDbUuid);
+            }
             m_ui->rememberCredentialsCheckBox->setChecked(false);
             toggleQuickUnlockScreen();
-            m_ui->messageWidget->showMessage(
-                tr("Stored Quick Unlock credentials failed to unlock the database and were cleared. Please enter your password."),
-                MessageWidget::Warning);
+            const QString failMsg = !error.isEmpty()
+                ? tr("Stored Quick Unlock credentials failed to unlock the database: %1").arg(error)
+                : tr("Stored Quick Unlock credentials failed to unlock the database and were cleared. Please enter your password.");
+            m_ui->messageWidget->showMessage(failMsg, MessageWidget::Warning);
         } else if (!isOnQuickUnlockScreen() && m_ui->editPassword->text().isEmpty() && !m_retryUnlockWithEmptyPassword) {
             QScopedPointer<QMessageBox> msgBox(new QMessageBox(this));
             msgBox->setIcon(QMessageBox::Critical);

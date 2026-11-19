@@ -31,8 +31,9 @@ if [[ ! -d "${STAGED_APP}" ]]; then
   exit 1
 fi
 
-echo "==> Ad-hoc code signing ${APP_NAME}..."
-codesign --force --deep --sign - "${STAGED_APP}"
+echo "==> Ad-hoc code signing ${APP_NAME} with Hardened Runtime..."
+ENTITLEMENTS_FILE="${SCRIPT_DIR}/share/macosx/keepassxc-adhoc.entitlements"
+codesign --force --deep --options=runtime --entitlements "${ENTITLEMENTS_FILE}" --sign - "${STAGED_APP}"
 
 echo "==> Closing running KeePassXC instances if any..."
 osascript -e 'quit app "KeePassXC"' 2>/dev/null || true
