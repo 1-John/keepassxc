@@ -23,6 +23,7 @@
 class TouchID : public QuickUnlockInterface
 {
 public:
+    TouchID();
     bool isAvailable() const override;
     QString errorString() const override;
 

@@ -34,6 +34,7 @@
 #include <QCloseEvent>
 #include <QDesktopServices>
 #include <QFont>
+#include <QPointer>
 
 namespace
 {
@@ -140,7 +141,10 @@ DatabaseOpenWidget::DatabaseOpenWidget(QWidget* parent)
     });
 }
 
-DatabaseOpenWidget::~DatabaseOpenWidget() = default;
+DatabaseOpenWidget::~DatabaseOpenWidget()
+{
+    getQuickUnlock()->cancelPrompt();
+}
 
 void DatabaseOpenWidget::toggleHardwareKeyComponent(bool state)
 {
@@ -216,7 +220,7 @@ bool DatabaseOpenWidget::event(QEvent* event)
             m_quickUnlockPromptActive = true;
             QTimer::singleShot(150, this, [this] {
                 m_quickUnlockPromptActive = false;
-                if (isOnQuickUnlockScreen() && !unlockingDatabase() && isVisible() && !m_userDeclinedTouchID) {
+                if (isOnQuickUnlockScreen() && !unlockingDatabase() && isVisible() && isActiveWindow() && !m_userDeclinedTouchID) {
                     triggerQuickUnlock();
                 }
             });
@@ -257,6 +261,7 @@ bool DatabaseOpenWidget::event(QEvent* event)
         }
 
         if (type == QEvent::Hide) {
+            getQuickUnlock()->cancelPrompt();
             m_deviceListener->deregisterAllHotplugCallbacks();
         }
 
@@ -372,6 +377,7 @@ void DatabaseOpenWidget::openDatabase()
 {
     // Cache this variable for future use then reset
     bool blockQuickUnlock = m_blockQuickUnlock || isOnQuickUnlockScreen() || m_unlockingWithTouchID;
+    bool triedQuickUnlock = isOnQuickUnlockScreen() || m_unlockingWithTouchID;
     m_blockQuickUnlock = false;
 
     setUserInteractionLock(true);
@@ -379,7 +385,11 @@ void DatabaseOpenWidget::openDatabase()
     m_ui->messageWidget->hide();
     QCoreApplication::processEvents();
 
+    QPointer<DatabaseOpenWidget> guard(this);
     const auto databaseKey = buildDatabaseKey();
+    if (!guard) {
+        return;
+    }
     if (!databaseKey) {
         setUserInteractionLock(false);
         return;
@@ -419,7 +429,9 @@ void DatabaseOpenWidget::openDatabase()
         if (!blockQuickUnlock && isQuickUnlockAvailable()) {
             if (m_ui->rememberCredentialsCheckBox->isChecked()) {
                 auto keyData = databaseKey->serialize();
-                getQuickUnlock()->setKey(m_db->publicUuid(), keyData);
+                if (!getQuickUnlock()->setKey(m_db->publicUuid(), keyData)) {
+                    qWarning("Failed to save Quick Unlock credentials: %s", qPrintable(getQuickUnlock()->errorString()));
+                }
                 Botan::secure_scrub_memory(keyData.data(), static_cast<size_t>(keyData.size()));
             } else {
                 getQuickUnlock()->reset(m_db->publicUuid());
@@ -430,7 +442,13 @@ void DatabaseOpenWidget::openDatabase()
         emit dialogFinished(true);
         clearForms();
     } else {
-        if (!isOnQuickUnlockScreen() && m_ui->editPassword->text().isEmpty() && !m_retryUnlockWithEmptyPassword) {
+        if (triedQuickUnlock) {
+            getQuickUnlock()->reset(m_db->publicUuid());
+            toggleQuickUnlockScreen();
+            m_ui->messageWidget->showMessage(
+                tr("Stored Quick Unlock credentials failed to unlock the database and were cleared. Please enter your password."),
+                MessageWidget::Warning);
+        } else if (!isOnQuickUnlockScreen() && m_ui->editPassword->text().isEmpty() && !m_retryUnlockWithEmptyPassword) {
             QScopedPointer<QMessageBox> msgBox(new QMessageBox(this));
             msgBox->setIcon(QMessageBox::Critical);
             msgBox->setWindowTitle(tr("Unlock failed and no password given"));
@@ -475,12 +493,23 @@ QSharedPointer<CompositeKey> DatabaseOpenWidget::buildDatabaseKey()
         // try to retrieve the stored password using Quick Unlock
         QByteArray keyData;
         const QString dbName = !m_db->publicName().isEmpty() ? m_db->publicName() : QFileInfo(m_filename).fileName();
-        if (!getQuickUnlock()->getKey(m_db->publicUuid(), keyData, dbName)) {
+        QPointer<DatabaseOpenWidget> guard(this);
+        const bool keyRetrieved = getQuickUnlock()->getKey(m_db->publicUuid(), keyData, dbName);
+        if (!guard) {
+            Botan::secure_scrub_memory(keyData.data(), static_cast<size_t>(keyData.size()));
+            return {};
+        }
+        if (!keyRetrieved) {
             Botan::secure_scrub_memory(keyData.data(), static_cast<size_t>(keyData.size()));
             m_userDeclinedTouchID = true;
-            if (!getQuickUnlock()->hasKey(m_db->publicUuid())) {
+            const QString err = getQuickUnlock()->errorString();
+            if (err == QStringLiteral("USER_FALLBACK")) {
+                m_ui->centralStack->setCurrentIndex(0);
+                if (m_ui->editPassword->isVisible()) {
+                    m_ui->editPassword->setFocus();
+                }
+            } else if (!getQuickUnlock()->hasKey(m_db->publicUuid())) {
                 toggleQuickUnlockScreen();
-                const QString err = getQuickUnlock()->errorString();
                 if (!err.isEmpty()) {
                     m_ui->messageWidget->showMessage(err, MessageWidget::Warning);
                 }

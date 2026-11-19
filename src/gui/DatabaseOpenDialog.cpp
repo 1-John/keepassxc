@@ -21,6 +21,7 @@
 #include "DatabaseTabWidget.h"
 #include "DatabaseWidget.h"
 #include "GuiTools.h"
+#include "quickunlock/QuickUnlockInterface.h"
 
 #include <QFileInfo>
 #include <QLayout>
@@ -90,7 +91,7 @@ void DatabaseOpenDialog::showEvent(QShowEvent* event)
 
 void DatabaseOpenDialog::selectTabOffset(int offset)
 {
-    if (offset == 0 || m_tabBar->count() <= 1) {
+    if (offset == 0 || m_tabBar->count() <= 1 || (m_view && m_view->unlockingDatabase())) {
         return;
     }
     int tab = m_tabBar->currentIndex() + offset;
@@ -132,6 +133,13 @@ void DatabaseOpenDialog::setActiveDatabaseTab(DatabaseWidget* dbWidget)
 void DatabaseOpenDialog::tabChanged(int index)
 {
     if (index < 0 || index >= m_tabDbWidgets.count()) {
+        return;
+    }
+
+    if (m_view && m_view->unlockingDatabase()) {
+        m_tabBar->blockSignals(true);
+        m_tabBar->setCurrentIndex(m_tabDbWidgets.indexOf(m_currentDbWidget));
+        m_tabBar->blockSignals(false);
         return;
     }
 
@@ -202,6 +210,7 @@ QSharedPointer<Database> DatabaseOpenDialog::database() const
 
 void DatabaseOpenDialog::done(int result)
 {
+    getQuickUnlock()->cancelPrompt();
     hide();
 
     emit dialogFinished(result == QDialog::Accepted, m_currentDbWidget);
@@ -235,6 +244,7 @@ void DatabaseOpenDialog::complete(bool accepted)
 
 void DatabaseOpenDialog::closeEvent(QCloseEvent* e)
 {
+    getQuickUnlock()->cancelPrompt();
     emit dialogFinished(false, m_currentDbWidget);
     clearForms();
     QDialog::closeEvent(e);

@@ -53,6 +53,7 @@
 #include "keeshare/KeeShare.h"
 #include "keeshare/SettingsPageKeeShare.h"
 #include "keys/drivers/YubiKey.h"
+#include "quickunlock/QuickUnlockInterface.h"
 
 #ifdef KPXC_FEATURE_UPDATES
 #include "gui/UpdateCheckDialog.h"
@@ -1355,6 +1356,7 @@ void MainWindow::hideEvent(QHideEvent* event)
 
 void MainWindow::closeEvent(QCloseEvent* event)
 {
+    getQuickUnlock()->cancelPrompt();
     if (m_appExiting) {
         event->accept();
         return;
@@ -1889,6 +1891,7 @@ bool MainWindow::isMinimizedToSystemTray()
 
 void MainWindow::handleScreenLock()
 {
+    getQuickUnlock()->cancelPrompt();
     if (config()->get(Config::Security_LockDatabaseScreenLock).toBool()) {
         lockAllDatabases();
     }

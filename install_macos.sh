@@ -31,10 +31,17 @@ if [[ ! -d "${STAGED_APP}" ]]; then
   exit 1
 fi
 
-echo "==> Ad-hoc code signing ${APP_NAME}..."
-codesign --force --deep --sign - "${STAGED_APP}"
+echo "==> Ad-hoc code signing ${APP_NAME} with Hardened Runtime..."
+codesign --force --deep --options=runtime --sign - "${STAGED_APP}"
 
 echo "==> Closing running KeePassXC instances if any..."
+osascript -e 'quit app "KeePassXC"' 2>/dev/null || true
+for i in {1..10}; do
+  if ! pgrep -x "KeePassXC" >/dev/null; then
+    break
+  fi
+  sleep 0.5
+done
 killall KeePassXC 2>/dev/null || true
 
 echo "==> Installing to ${DEST_APP}..."
