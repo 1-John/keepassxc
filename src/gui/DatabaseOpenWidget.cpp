@@ -329,6 +329,7 @@ void DatabaseOpenWidget::load(const QString& filename)
         }
     }
 
+    m_ui->rememberCredentialsCheckBox->setChecked(!m_db.isNull() && getQuickUnlock()->hasKey(m_db->publicUuid()));
     toggleQuickUnlockScreen();
 
     // Do initial auto-poll
@@ -344,6 +345,7 @@ void DatabaseOpenWidget::clearForms()
     m_ui->keyFileLineEdit->setShowPassword(false);
     m_ui->keyFileLineEdit->setClearButtonEnabled(true);
     m_ui->hardwareKeyCombo->clear();
+    m_ui->rememberCredentialsCheckBox->setChecked(false);
     toggleHardwareKeyComponent(false);
     toggleQuickUnlockScreen();
 
@@ -444,6 +446,7 @@ void DatabaseOpenWidget::openDatabase()
     } else {
         if (triedQuickUnlock) {
             getQuickUnlock()->reset(m_db->publicUuid());
+            m_ui->rememberCredentialsCheckBox->setChecked(false);
             toggleQuickUnlockScreen();
             m_ui->messageWidget->showMessage(
                 tr("Stored Quick Unlock credentials failed to unlock the database and were cleared. Please enter your password."),
