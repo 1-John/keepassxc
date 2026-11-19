@@ -576,6 +576,10 @@ void ApplicationSettingsWidget::saveSettings()
         config()->remove(Config::LastChallengeResponse);
     }
 
+    if (!config()->get(Config::Security_QuickUnlock).toBool()) {
+        getQuickUnlock()->reset();
+    }
+
     // Save settings for additional pages
     for (const ExtraPage& page : asConst(m_extraPages)) {
         page.saveSettings();

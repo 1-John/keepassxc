@@ -19,7 +19,6 @@
 #define KEEPASSXC_TOUCHID_H
 
 #include "QuickUnlockInterface.h"
-#include <QHash>
 
 class TouchID : public QuickUnlockInterface
 {
@@ -39,7 +38,7 @@ private:
     static bool isWatchAvailable();
     static bool isTouchIdAvailable();
 
-    QHash<QUuid, QByteArray> m_encryptedMasterKeys;
+    QString m_error;
 };
 
 #endif // KEEPASSXC_TOUCHID_H

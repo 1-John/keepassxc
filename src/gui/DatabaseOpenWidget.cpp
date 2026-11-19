@@ -28,6 +28,8 @@
 #include "keys/drivers/YubiKeyInterfaceUSB.h"
 #include "quickunlock/QuickUnlockInterface.h"
 
+#include <botan/mem_ops.h>
+
 #include <QCheckBox>
 #include <QCloseEvent>
 #include <QDesktopServices>
@@ -369,7 +371,7 @@ void DatabaseOpenWidget::enterKey(const QString& pw, const QString& keyFile)
 void DatabaseOpenWidget::openDatabase()
 {
     // Cache this variable for future use then reset
-    bool blockQuickUnlock = m_blockQuickUnlock || isOnQuickUnlockScreen();
+    bool blockQuickUnlock = m_blockQuickUnlock || isOnQuickUnlockScreen() || m_unlockingWithTouchID;
     m_blockQuickUnlock = false;
 
     setUserInteractionLock(true);
@@ -418,6 +420,7 @@ void DatabaseOpenWidget::openDatabase()
             if (m_ui->rememberCredentialsCheckBox->isChecked()) {
                 auto keyData = databaseKey->serialize();
                 getQuickUnlock()->setKey(m_db->publicUuid(), keyData);
+                Botan::secure_scrub_memory(keyData.data(), static_cast<size_t>(keyData.size()));
             } else {
                 getQuickUnlock()->reset(m_db->publicUuid());
             }
@@ -473,10 +476,19 @@ QSharedPointer<CompositeKey> DatabaseOpenWidget::buildDatabaseKey()
         QByteArray keyData;
         const QString dbName = !m_db->publicName().isEmpty() ? m_db->publicName() : QFileInfo(m_filename).fileName();
         if (!getQuickUnlock()->getKey(m_db->publicUuid(), keyData, dbName)) {
+            Botan::secure_scrub_memory(keyData.data(), static_cast<size_t>(keyData.size()));
             m_userDeclinedTouchID = true;
+            if (!getQuickUnlock()->hasKey(m_db->publicUuid())) {
+                toggleQuickUnlockScreen();
+                const QString err = getQuickUnlock()->errorString();
+                if (!err.isEmpty()) {
+                    m_ui->messageWidget->showMessage(err, MessageWidget::Warning);
+                }
+            }
             return {};
         }
         databaseKey->setRawKey(keyData);
+        Botan::secure_scrub_memory(keyData.data(), static_cast<size_t>(keyData.size()));
         m_userDeclinedTouchID = false;
         return databaseKey;
     }
@@ -671,6 +683,7 @@ bool DatabaseOpenWidget::isOnQuickUnlockScreen() const
 
 void DatabaseOpenWidget::toggleQuickUnlockScreen()
 {
+    m_ui->rememberCredentialsContainer->setVisible(isQuickUnlockAvailable());
     bool touchIdAvail = canPerformQuickUnlock();
     m_ui->touchIDUnlockButton->setVisible(touchIdAvail);
 
