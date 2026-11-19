@@ -93,7 +93,7 @@ QString getTouchIDStoragePath(const QUuid& dbUuid, bool createDir)
 
 SecAccessControlCreateFlags biometricAccessControlFlags()
 {
-    SecAccessControlCreateFlags flags = kSecAccessControlBiometryCurrentSet;
+    SecAccessControlCreateFlags flags = kSecAccessControlPrivateKeyUsage | kSecAccessControlBiometryCurrentSet;
 #if XC_COMPILER_SUPPORT(WATCH_UNLOCK)
 #if defined(MAC_OS_VERSION_15_0) && MAC_OS_X_VERSION_MAX_ALLOWED >= MAC_OS_VERSION_15_0
     flags = flags | kSecAccessControlOr | kSecAccessControlCompanion;
@@ -412,10 +412,12 @@ bool TouchID::getKey(const QUuid& dbUuid, QByteArray& passwordKey, const QString
         SecKeyRef restoredKey = SecKeyCreateWithData((__bridge CFDataRef)[NSData data],
                                                      (__bridge CFDictionaryRef)restoreAttrs,
                                                      &error);
-        [context release];
 
         if (!restoredKey) {
+            [context release];
             if (error) {
+                qWarning("TouchID: SecKeyCreateWithData failed: %s",
+                         [[(__bridge NSError*)error localizedDescription] UTF8String]);
                 CFRelease(error);
             }
             QFile::remove(filePath);
@@ -432,9 +434,12 @@ bool TouchID::getKey(const QUuid& dbUuid, QByteArray& passwordKey, const QString
             (__bridge CFDataRef)ciphertextData,
             &error);
         CFRelease(restoredKey);
+        [context release];
 
         if (!decryptedRef) {
             if (error) {
+                qWarning("TouchID: SecKeyCreateDecryptedData failed: %s",
+                         [[(__bridge NSError*)error localizedDescription] UTF8String]);
                 CFRelease(error);
             }
             QFile::remove(filePath);
